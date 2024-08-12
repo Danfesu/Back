@@ -7,17 +7,40 @@ import { UpdateOrderInput } from './dto/update-order.input';
 import { OrderError, OrderErrorCode } from 'src/exceptions/order-error';
 import { CustomerError, CustomerErrorCode } from 'src/exceptions/customer-error';
 import { DistributionError, DistributionErrorCode } from 'src/exceptions/distribution-error';
+import { SearchOrderInput } from './dto/SearchOrderInput';
+import { distribution } from '@prisma/client';
+import { Pagination } from 'src/util/pagination/pagination.output';
 
 @Injectable()
 export class OrderService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOrders(distribution_id: number): Promise<OrderDto[]> {
+  async getOrders(search: SearchOrderInput): Promise<Pagination<OrderDto>> {
+
+    const {distribution_id, pageNumber, size} = search;
+
+    const distribution = await this.prisma.distribution.findFirst({where: {id: distribution_id, delete_at: null}});
+    if(!distribution) throw new DistributionError(DistributionErrorCode.DISTRIBUTION_NOT_FOUND, `No existe una distribución con id ${distribution_id}`)
+
     const orders = await this.prisma.order.findMany({
       where: { distribution_id },
+      take: size,
+      skip: (pageNumber - 1) * size,
     });
 
-    return orders.map((order) => this.getOrderDto(order));
+    const totalPages = Math.ceil(
+      (await this.prisma.order.count({
+        where: { distribution_id },
+      })) / size,
+    );
+
+    return {
+      currentPage: pageNumber,
+      items: orders.map((order) => this.getOrderDto(order)),
+      size,
+      totalPages
+    } 
+    
   }
 
   async create(order: CreateOrderInput): Promise<OrderDto> {
